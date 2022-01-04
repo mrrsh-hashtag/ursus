@@ -1,5 +1,7 @@
-import json
-from logging.config import valid_ident
+import logging
+import os
+import sys
+
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import nevergrad as ng
@@ -7,14 +9,13 @@ import numpy as np
 import pandas as pd
 from matplotlib.collections import LineCollection
 from prophet import Prophet
-from sklearn.linear_model import LinearRegression
-from sklearn.linear_model import Ridge
+from scipy import interpolate
+from sklearn.linear_model import LinearRegression, Ridge
 # from ursus.ridge import Ridge
 from sklearn.metrics import r2_score
 from sklearn.model_selection import train_test_split
-from scipy import interpolate
-from pprint import pprint
 
+log = logging.getLogger(__name__)
 
 class Ursus:
     def __init__(self, data, parameters):
@@ -22,6 +23,7 @@ class Ursus:
         self.parameters = self.validate_parameters(parameters)
         self.parameters["use_prophet"] = self.parameters.get("use_prophet", True)
         self.epsilon = 0.001
+        self.gamma_ts = None
 
     def load_data(self, data):
         if isinstance(data, str):
@@ -35,6 +37,7 @@ class Ursus:
         raise AttributeError("Data must be a data path or data frame")
     
     def validate_parameters(self, parameters):
+        parameters["budget"] = parameters.get("budget", 5000)
         return parameters
     
     def train(self, plot=True):
@@ -56,12 +59,15 @@ class Ursus:
         )
 
         optimizer = ng.optimizers.NGOpt(parametrization=parametrization,
-                                        budget=1000,
+                                        budget=self.parameters["budget"],
                                         num_workers=1)
+        self.start_progress()
         recommendation = optimizer.minimize(self.model_candidate_train_test)
+        print()
         
         self.hyper_params = recommendation.value[1]
         self.clf, r2, loss = self.model_candidate_train_test(return_model=True,
+                                                             progress=False,
                                                              **self.hyper_params)
         print(f"Training r2: {r2:0.4} \t loss: {loss:0.4}")
         if plot:
@@ -69,7 +75,9 @@ class Ursus:
             self.plot_one_page()
             # self.get_history_decomposition()
     
-    def model_candidate_train_test(self, return_model=False, **hyper_params):
+    def model_candidate_train_test(self, return_model=False, progress=True, **hyper_params):
+        if progress:
+            self.progress_tick()
         nr_spends = len(self.splited_data["ind_columns"])
         param_data = self.apply_params(hyper_params)
         ridge_alpha = hyper_params.get("ridge_alpha", 0.7)
@@ -141,31 +149,20 @@ class Ursus:
         objective = np.sqrt(rssd**2 + rmse**2)
         return objective
 
-    def apply_params(self, hyper_params, use_split=True, x_data=None, use_adstock=True):
+    def apply_params(self, hyper_params, use_split=True, x_data=None):
+        x_test = None
+        set_gamma = False
         if use_split:
             x_train = self.splited_data["train"]["x"]
             x_test = self.splited_data["test"]["x"]
+            set_gamma = True
         elif x_data is not None:
             x_train = x_data.copy()
         else:
             x_train = self.splited_data["all"]["x"]
-        done_with = []
-        for hyper_param in hyper_params.keys():
-            if hyper_param == "ridge_alpha":
-                continue
-            head = "_".join(hyper_param.split("_")[0:-1])
-            if not head in done_with:
-                head_idx = self.splited_data["ind_columns"][head]
-                alpha = hyper_params[head + "_alpha"]
-                gamma = hyper_params[head + "_gamma"]
-                theta = hyper_params[head + "_theta"] if use_adstock else 0
-                x_train_as = self.apply_adstock(head_idx, theta, x_train)
-                x_train = self.apply_saturation(head_idx, alpha, gamma, x_train_as)
-                if use_split:
-                    x_test = self.apply_adstock(head_idx, theta, x_test)
-                    x_test = self.apply_saturation(head_idx, alpha, gamma, x_test)
-                done_with.append(head)
         
+        x_train = self.apply_params_data(x_train, hyper_params, set_gamma_t=set_gamma)
+        x_test = self.apply_params_data(x_test, hyper_params)
         
         if use_split:
             if not self.parameters["use_prophet"]:
@@ -197,6 +194,24 @@ class Ursus:
                     "profet": self.splited_data["all"]["profet"]
                 }
     
+    def apply_params_data(self, x, hyper_params, set_gamma_t=False):
+        if x is None:
+            return
+        done_with = []
+        for hyper_param in hyper_params.keys():
+            if hyper_param == "ridge_alpha":
+                continue
+            head = "_".join(hyper_param.split("_")[0:-1])
+            if not head in done_with:
+                head_idx = self.splited_data["ind_columns"][head]
+                alpha = hyper_params[head + "_alpha"]
+                gamma = hyper_params[head + "_gamma"]
+                theta = hyper_params[head + "_theta"]
+                x = self.apply_adstock(head_idx, theta, x)
+                x = self.apply_saturation(head_idx, alpha, gamma, x, set_gamma_t)
+                done_with.append(head)
+        return x
+
     def apply_adstock(self, idx, theta, x):
         ad_stock_value = 0
         x = x.copy()
@@ -205,26 +220,19 @@ class Ursus:
             x[i, idx] = ad_stock_value
         return x
 
-    def apply_saturation(self, idx, alpha, gamma, x, trans_val=None):
-        # # x_i = x[:, idx]
-        # # min_i = np.min(x[:, idx])
-        # # # min_i = np.min(self.splited_data["train"]["x"][:, idx])
-        # # max_i = np.max(x[:, idx])
-        # # # max_i = np.max(self.splited_data["train"]["x"][:, idx])
-        # # gammaTrans = np.quantile(np.linspace(min_i, max_i, 100), gamma)
-        # # x_j = (x_i**alpha)/((gammaTrans**alpha) + x_i**alpha + self.epsilon)
-        # # x[:, idx] = x_j
-        # # return x
+    def apply_saturation(self, idx, alpha, gamma, x, set_gamma_t):
         x_i = x[:, idx]
         
-        if trans_val is None or True:
+        if set_gamma_t:
             max_i = np.max(x_i)
             min_i = np.min(x_i)
+            gammaTrans = np.quantile(np.linspace(min_i, max_i, 10000), gamma)
+            if self.gamma_ts is None:
+                self.gamma_ts = np.zeros((x.shape[1],))
+            self.gamma_ts[idx] = gammaTrans
         else:
-            max_i = np.max(trans_val[:, idx])
-            min_i = np.min(trans_val[:, idx])
-                
-        gammaTrans = np.quantile(np.linspace(min_i, max_i, 10000), gamma)
+            gammaTrans = self.gamma_ts[idx]
+                            
         x_j = (x_i**alpha)/((gammaTrans**alpha) + x_i**alpha + self.epsilon)
         x[:, idx] = x_j
         return x
@@ -245,20 +253,24 @@ class Ursus:
         pro_df_all = pro_df_all.rename(columns={date_var: "ds", dep_var: "y"})
 
         if self.parameters["use_prophet"]:
-            prophet_model = Prophet()
+            log.info("Using prophet")
+            country_code = self.parameters.get("country_code", False)
+            if country_code:
+                log.info(f"Using holidays for {country_code}")
+                holidays = pd.read_csv("prophet_holidays.csv")
+                prophet_model = Prophet(holidays=holidays,
+                                        # weekly_seasonality=True,
+                                        # daily_seasonality=False
+                                        )
+            else:
+                log.info("Not using holidays")
+                prophet_model = Prophet(weekly_seasonality=True,
+                                        daily_seasonality=False)
+                
             prophet_model.fit(pro_df_trn)
             pro_df_trn_pred = prophet_model.predict(pro_df_trn[["ds"]])
             pro_df_tst_pred = prophet_model.predict(pro_df_tst[["ds"]])
             pro_df_all_pred = prophet_model.predict(pro_df_all[["ds"]])
-
-            # df = pro_df_trn_pred
-            # print(df.columns)
-            # ax = plt.gca()
-            # df.plot(kind='line',x='ds',y='yhat',ax=ax)
-            # df.plot(kind='line',x='ds',y='yearly', color='red', ax=ax)
-            # df.plot(kind='line',x='ds',y='trend', color='red', ax=ax)
-
-            # plt.show()
         
             y_season_trn = pro_df_trn_pred["yearly"].values
             y_season_tst = pro_df_tst_pred["yearly"].values
@@ -268,7 +280,10 @@ class Ursus:
             y_hat_tst = test_df[self.parameters["dep_var"]].values - y_season_tst
             y_hat_all = self.raw_data[self.parameters["dep_var"]].values - y_season_all
 
-            
+            # df = pro_df_trn_pred
+            # ax = plt.gca()
+            # ax.plot(df["ds"], pro_df_trn["y"], label="y")
+            # ax.plot(df["ds"], df["yearly"], label="year")
             # ax.plot(df["ds"], y_hat_trn, label="y-year")
             # ax.legend()
             # plt.show()
@@ -379,6 +394,9 @@ class Ursus:
         param_data = self.apply_params(self.hyper_params)
         spend_share = np.sum(param_data["test"]["x"][:, :len(labels)], axis=0)
         spend_share /= np.sum(spend_share)
+        print(spend_share)
+        spend_share = np.sum(self.splited_data["test"]["x"][:, :len(labels)], axis=0)
+        spend_share /= np.sum(spend_share)
         effect_share = self.clf.coef_[:len(labels)]
         effect_share /= np.sum(effect_share)
         
@@ -438,13 +456,13 @@ class Ursus:
         return training_data
 
     def get_spend_vs_effect(self):
-        param_data = self.apply_params(self.hyper_params)
-        spend_share = np.sum(param_data["test"]["x"], axis=0)
+        labels = list(self.splited_data["ind_columns"].keys())
+        spend_share = np.sum(self.splited_data["all"]["x"][:, :len(labels)], axis=0)
         spend_share /= np.sum(spend_share)
         effect_share = self.clf.coef_
         effect_share /= np.sum(effect_share)
         data = []
-        for i, label in enumerate(self.splited_data["ind_columns"].keys()):
+        for i, label in enumerate(labels):
             data.append(
                 {
                     "name": label,
@@ -530,6 +548,21 @@ class Ursus:
             "rmse_rssd": self.rmse_rssd_list[-1]
         }
 
+    def get_budget_optimum(self):
+        # X_opt = lambda * (alpha - 1)^(1/alpha)
+        pass
+
+
+    def progress_tick(self):
+        self.count += 1
+        size = os.get_terminal_size().columns
+        nr_ticks = int(size * self.count / self.parameters["budget"])
+        sys.stdout.write("\033[F") #back to previous line 
+        sys.stdout.write("\033[K")
+        print("#"*nr_ticks)
+
+    def start_progress(self):
+        self.count=0
 
 def add_arrow(line, position=None, direction='right', size=15, color=None):
     """ add an arrow to a line.
@@ -560,26 +593,3 @@ def add_arrow(line, position=None, direction='right', size=15, color=None):
         arrowprops=dict(arrowstyle="->", color=color),
         size=size
     )
-
-
-if __name__ == '__main__':
-    """
-    Demo / test run of Ursus
-    """
-    params = {
-        "dep_var": "revenue",
-        "date_var": "DATE",
-        "ind_var": [
-            "tv_S",
-            "ooh_S",
-            "print_S",
-            "facebook_I",
-            "search_clicks_P",
-            "search_S",
-            "competitor_sales_B",
-            "facebook_S"
-        ]
-    }
-
-    ursus = Ursus("demo_data.csv", params)
-    ursus.train()
