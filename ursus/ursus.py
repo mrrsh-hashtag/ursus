@@ -555,11 +555,12 @@ class Ursus:
 
     def progress_tick(self):
         self.count += 1
-        size = os.get_terminal_size().columns
-        nr_ticks = int(size * self.count / self.parameters["budget"])
-        sys.stdout.write("\033[F") #back to previous line 
-        sys.stdout.write("\033[K")
-        print("#"*nr_ticks)
+        # This breaks in the cloud.
+        #size = os.get_terminal_size().columns
+        #nr_ticks = int(size * self.count / self.parameters["budget"])
+        #sys.stdout.write("\033[F") #back to previous line 
+        #sys.stdout.write("\033[K")
+        #print("#"*nr_ticks)
 
     def start_progress(self):
         self.count=0
