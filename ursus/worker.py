@@ -9,6 +9,7 @@ from ursus.ursus import Ursus
 log = logging.getLogger(__name__)
 
 def ursus_worker(ch, method, properties, params):
+    ch.basic_ack(delivery_tag=method.delivery_tag)
     if not isinstance(params, dict):
         params = json.loads(params.decode())
     invalid = valid_task(params)
@@ -33,7 +34,7 @@ def ursus_worker(ch, method, properties, params):
     # jdb[params["company"]][params["table_id"]]["ursus_data"] = ursus_json_data
     # set_json(jdb)
     log.info(f"{params['job_id']} Worker returning ack")
-    ch.basic_ack(delivery_tag=method.delivery_tag)
+    
 
 def valid_task(params):
     keys = ["customer", "frame_name", "features", "job_id"]
