@@ -19,9 +19,14 @@ def check_mongo():
 
 def start_worker():
     log.info("Starting Ursus worker")
-    connection = pika.BlockingConnection(
-        pika.ConnectionParameters(host=cfg.worker_host)
-    )
+    if cfg.worker_url:
+        connection = pika.BlockingConnection(
+            pika.URLParameters(cfg.worker_url)
+        )
+    else:
+        connection = pika.BlockingConnection(
+            pika.ConnectionParameters(host=cfg.worker_host)
+        )
     queue = "ursus_task_queue"
     channel = connection.channel()
     channel.queue_declare(queue=queue)
