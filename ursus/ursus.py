@@ -1,3 +1,4 @@
+import copy
 import logging
 import os
 import sys
@@ -421,30 +422,25 @@ class Ursus:
         dep_var = self.parameters["dep_var"]
         spend_labels = list(self.splited_data["ind_columns"].keys())
         nr_spends = len(spend_labels)
-                
-        param_data = self.apply_params(self.hyper_params, use_split=False)
-
-        values = param_data["x"] * self.clf.coef_
-        spends = values[:, :nr_spends]
-        if not self.parameters["use_prophet"]:
-            season = np.sum(values[:, nr_spends:], axis=1)
-        else:
-            season = self.splited_data["all"]["y_season"]
         
-        intercept = self.clf.intercept_ * np.ones_like(season)
+        spends = self.apply_params_data(
+            self.splited_data["all"].x,
+            self.hyper_params,
+            apply_adstock=True,
+            apply_saturation=False)[:, :nr_spends]
 
-        # Scale the spend values to fit actual y
-        x = (param_data["y"] - intercept - season) / np.sum(spends, axis=1)
-        spends = (spends.T * x).T
+        season = self.splited_data["all"].y_season.reshape(-1, 1)
+        intercept = self.clf.intercept_ * np.ones_like(season)
+                
         values = np.concatenate([spends,
-                                season.reshape(-1, 1),
-                                intercept.reshape(-1, 1)], axis=1)
+                                season,
+                                intercept], axis=1)
 
         values = pd.DataFrame(values, columns = spend_labels + ["Season", "Intercept"])
         values["Date"] = self.raw_data[date_var]
         values["y"] = self.raw_data[dep_var]
         
-        y_span = [0, param_data["y"].max() * 1.1]
+        y_span = [0, self.raw_data[dep_var].max() * 1.1]
         # Reorder columns
         col_mean = sorted([(values[lbl].mean(), lbl) for lbl in spend_labels], reverse=True)
         col_order = ["Date", "Intercept", "Season"] + [col[1] for col in col_mean] + ["y"]
