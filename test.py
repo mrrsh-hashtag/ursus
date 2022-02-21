@@ -12,23 +12,30 @@ params = {
         "tv_S",
         "ooh_S",
         "print_S",
-        "search_clicks_P",
         "search_S",
         "facebook_S"
     ],
     "context": [
+        "search_clicks_P",
         "facebook_I",
         "competitor_sales_B",
     ],
-    "budget": 50,
+    "budget": 2000,
+    # "auto_weight_season": True,
     "print_progress": True,
-    # "plot_one_page": True
+    "plot_one_page": True,
+    # "adstock_algo": "weibull",
+    "adstock_algo": "geometric",
     # "country_code": "DE"
 }
 
 ursus = Ursus("demo_data.csv", params)
+# ursus.workshop_test()
 ursus.train()
+# ursus.get_budget_optimization()
 
 training_data = ursus.get_training_data()
-# mongo.connect()
-# mongo.set_training_results(params["customer"], params["frame_name"], training_data)
+do_push = input("Push training data [y/n]:")
+if do_push == "y" or do_push == "Y":
+    mongo.connect()
+    mongo.set_training_results(params["customer"], params["frame_name"], training_data)
