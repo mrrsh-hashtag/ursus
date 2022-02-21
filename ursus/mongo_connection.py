@@ -15,6 +15,7 @@ client = None
 def connect():
     global client
     try:
+        log.info("Connecting to MongoDB")
         client = MongoClient(cfg.mongo_url,
                              serverSelectionTimeoutMS=3000)
         client.server_info()
@@ -34,6 +35,7 @@ def get_dataframe(customer, frame_name):
     return df
 
 def set_training_results(customer, frame_name, training_data):
+    log.info("Sending training data to MongoDB")
     document = client.ursus_data[customer]
     if not "timestamp" in training_data:
         training_data["timestamp"] = datetime.now()
