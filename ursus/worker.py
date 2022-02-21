@@ -25,14 +25,11 @@ def ursus_worker(ch, method, properties, params):
     
     log.info(f"{params['job_id']} Starting training")
     ursus = Ursus(df, params["features"])
-    ursus.train(plot=False)
+    ursus.train()
     log.info(f"{params['job_id']} Extracting training data")
     training_data = ursus.get_training_data()
     mongo.set_training_results(params["customer"], params["frame_name"], training_data)
 
-    # jdb = get_json()
-    # jdb[params["company"]][params["table_id"]]["ursus_data"] = ursus_json_data
-    # set_json(jdb)
     log.info(f"{params['job_id']} Worker returning ack")
     
 
