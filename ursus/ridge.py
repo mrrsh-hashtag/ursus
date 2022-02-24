@@ -22,13 +22,9 @@ class HNRidge:
             X = (X - self.x_mean) / self.x_std
             y = (y - self.y_mean) / self.y_std
             _y = y
-            # print("std X")
-            # print(np.std(X, axis=0))
-            # print("std y")
-            # print(np.std(y))
         else: 
             _y = y
-        I = np.eye(X.shape[1])
+
         self.coef_ = np.linalg.inv(X.T @ X) @ X.T @ _y
         
         y_hat = np.sum(self.coef_ * X, axis=1)
@@ -37,35 +33,10 @@ class HNRidge:
             self.coef_ = self.coef_[:-1]
         else:
             self.intercept_ = 0
-        
-        # sst = np.sum(np.power(y - np.mean(y), 2)) / _y.shape[0]
-        # print("sst")
-        # print(sst)
         s2 = np.sum(np.power(_y - y_hat, 2)) / _y.shape[0]
-        # print("s2")
-        # print(s2)
-        # r2 = 1 - s2/sst
-        # print("r2")
-        # print(r2)
-
-        # print("beta")
-        # print(self.coef_)
-        # print("intercept")
-        # print(self.intercept_)
-
-        ##### New Method
-        LAMDA, GAMMA = np.linalg.eig(X.T @ X)
-        # print("LAMDA eigenvalues")
-        # print(LAMDA)
-        # print("GAMMA eigenvectors")
-        # print(GAMMA)
-
-        X_GAMMA = X @ GAMMA
-        # print("std X_GAMMA")
-        # print(np.std(X_GAMMA, axis=0))
-        # print(np.sum(np.std(X_GAMMA, axis=0)))
-
         
+        LAMDA, GAMMA = np.linalg.eig(X.T @ X)
+                
         LAMDA_diag = np.diag(LAMDA)
         LAMBDA_inv = np.linalg.inv(LAMDA_diag)
         b_star = LAMBDA_inv @ GAMMA.T @ X.T @ _y
@@ -83,10 +54,9 @@ class HNRidge:
             self.intercept_ = b_rr[-1]
             self.coef_ = b_rr[:-1]
         else:
+            # Scale back to standard values
             self.coef_ = b_rr * self.y_std / self.x_std
             self.intercept_ = self.y_mean - np.sum(self.coef_ * self.x_mean)
-            # print(self.coef_)
-            # print(self.intercept_)
 
 
     def predict(self, X):
