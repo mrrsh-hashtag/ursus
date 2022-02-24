@@ -1,6 +1,6 @@
-from ursus.ursus import Ursus
-from ursus import custom_logger
-import ursus.mongo_connection as mongo
+from den.ursus import Ursus
+from utilities import custom_logger
+import utilities.mongo_connection as mongo
 
 custom_logger.setup()
 params = {
@@ -54,7 +54,7 @@ params = {
             "upper": 2
         },
     },
-    "budget": 5000,
+    "budget": 50,
     "trials": 1,
     # "budget": 500,
     "auto_weight_season": True,
@@ -168,7 +168,7 @@ params_LV = {
 }
 
 
-ursus = Ursus("demo_data.csv", params)
+ursus = Ursus("data/demo_data.csv", params)
 # ursus = Ursus("KK_agg.csv", params_KK)
 # ursus = Ursus("LV.csv", params_LV)
 
@@ -176,19 +176,19 @@ ursus = Ursus("demo_data.csv", params)
 ursus.train()
 # ursus.get_budget_optimization()
 
-while True:
-    print("Low risk")
-    ursus.get_budget_optimization()
-    print("High risk")
-    ursus.get_budget_optimization(0.6, 1.4)
-    do_retry = input("Generate new opti [y/n]:")
-    if do_retry == "y" or do_retry == "Y":
-        ursus.budget_optimizations = []
-    else:
-        break    
+# while True:
+#     print("Low risk")
+#     ursus.get_budget_optimization()
+#     print("High risk")
+#     ursus.get_budget_optimization(0.6, 1.4)
+#     do_retry = input("Generate new opti [y/n]:")
+#     if do_retry == "y" or do_retry == "Y":
+#         ursus.budget_optimizations = []
+#     else:
+#         break    
 
-training_data = ursus.get_training_data()
-do_push = input("Push training data [y/n]:")
-if do_push == "y" or do_push == "Y":
-    mongo.connect()
-    mongo.set_training_results(params["customer"], params["frame_name"], training_data)
+# training_data = ursus.get_training_data()
+# do_push = input("Push training data [y/n]:")
+# if do_push == "y" or do_push == "Y":
+#     mongo.connect()
+#     mongo.set_training_results(params["customer"], params["frame_name"], training_data)

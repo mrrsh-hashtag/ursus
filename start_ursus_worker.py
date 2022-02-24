@@ -1,8 +1,8 @@
 import sys
 import logging
-from ursus import custom_logger
-import ursus.mongo_connection as mongo
-import ursus.worker as worker
+from utilities import custom_logger
+import utilities.mongo_connection as mongo
+import den.worker as worker
 import config as cfg
 import pika
 
