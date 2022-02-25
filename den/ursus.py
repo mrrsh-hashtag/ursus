@@ -31,7 +31,6 @@ class Ursus:
         self.raw_data = self.load_data(data)
         self.parameters = self.validate_parameters(parameters)
         self.gamma_ts = None
-        self.init_effect = None
         self.budget_optimizations = []
 
     def load_data(self, data):
@@ -130,10 +129,10 @@ class Ursus:
             self.start_progress()
             recommendation = optimizer.minimize(self.model_candidate_train_test)
             hyper_params = recommendation.value[1]
-            self.clf, r2, loss = self.model_candidate_train_test(return_model=True,
+            self.clf, r2, self.loss = self.model_candidate_train_test(return_model=True,
                                                                 progress=False,
                                                                 **hyper_params)
-            log.info(f"Trial {trial} end. r2: {r2:0.4f}, loss: {loss:0.4f}")
+            log.info(f"Trial {trial} end. r2: {r2:0.4f}, loss: {self.loss:0.4f}")
         self.hyper_params = hyper_params
 
         if self.parameters["plot_one_page"]:
@@ -172,7 +171,6 @@ class Ursus:
             lower = lower if lower > 0 else 0
             upper = upper if upper < 1 else 1
         return lower, upper
-
 
     def model_candidate_train_test(self, return_model=False, progress=True, **hyper_params):
         if progress:
@@ -413,192 +411,51 @@ class Ursus:
         # Delete the first week and use it as a reference point
         week_mat = np.delete(week_mat, 0, 1)
         return week_mat
-
-    def plot_one_page(self):
-        fig, axs = plt.subplots(figsize=(14, 8), nrows=2, ncols=4)
-        axs = axs.reshape(-1)
-
-        self.plot_regression(axs[0])
-        self.plot_pareto_front(axs[1])
-        self.plot_training_eval(axs[2])
-        self.plot_spend_effect(axs[3])
-        self.plot_waterfall(axs[4])
-        self.plot_budget_optimizer(axs[5])
-        self.plot_adstock(axs[6])
-        self.plot_budget_total(axs[7])
-
-        plt.tight_layout()
-        plt.savefig("Training and testing plot",
-                facecolor="white",
-                dpi=400,
-                )
-        plt.show()
     
-    def plot_pareto_front(self, ax):        
-        # Check for outliers
+    def get_pareto_data(self):
         rssd = np.array(self.metrics["rssd"])
         rmse = np.array(self.metrics["rmse"])
-        mean, stdev = np.mean(rssd), np.std(rssd)
-        outliers = (rssd - mean) > 4*stdev
-        if np.sum(outliers) > 0:
-            log.warn("Outlier detected in paretofront.")
-            rssd = rssd[~outliers]
-            rmse = rmse[~outliers]
-        
-        color = np.linspace(0, 1, rssd.size)
-        cmap = plt.get_cmap("turbo", rssd.size)
+        c_vals = np.arange(rssd.size)
+        return {
+            "rssd": rssd,
+            "rmse": rmse,
+            "c_vals": c_vals,
+            "loss": self.loss
+        }
 
-        ax.scatter(rmse, rssd, alpha=0.3, c=color, cmap=cmap, linewidth=0)
-        
-        param_data = self.apply_params(self.hyper_params, use_split=False)
-        y_pred = self._predict(param_data)
-        nr_spends = len(self.splited_data["ind_columns"])
-        loss = self.loss_function(self.clf, y_pred, param_data, nr_spends)
-
-        ax.set_title(f"Pareto front. Final loss: {loss:0.4}")
-        ax.set_xlabel("rmse")
-        ax.set_ylabel("rssd")
-                
-        sm = plt.cm.ScalarMappable(cmap=cmap)
-        sm.set_array([])
-        cbar = plt.colorbar(sm, ticks=np.linspace(0, rssd.size, 10),
-                            # boundaries=np.arange(-0.05,2.1,.1),
-                            orientation="vertical",
-                            ax=ax)
-
-    def plot_training_eval(self, ax):
-        ax.plot(self.metrics["r2"], label=r"$r^2$")
-        ax.plot(self.metrics["rmse_rssd"], label=r"$\sqrt{rmse^2 + rssd^2}$")
-        ax.plot(self.metrics["rmse"], label="NRMSE")
-        ax.plot(self.metrics["rssd"], label="RSSD")
-        ax.set_ylim(0, 1)
-        
-        ax.legend()
-        ax.set_title(r"Training evaluation. Final $r^2=$" + f"{self.metrics['r2'][-1]:0.4}")
-
-    def plot_spend_effect(self, ax):
+    def get_training_eval_data(self):
+        x = list(range(len(self.metrics["r2"])))
+        return {
+            "x": x,
+            "r2": self.metrics["r2"],
+            "rmse_rssd": self.metrics["rmse_rssd"],
+            "rmse": self.metrics["rmse"],
+            "rssd": self.metrics["rssd"]
+        }
+    
+    def get_spend_effect_data(self):
         labels = list(self.splited_data["ind_columns"].keys())
-        x = np.arange(len(labels))
-
-        spend_share = np.sum(self.splited_data["test"].x[:, :len(labels)], axis=0)
+        spend_share = np.sum(self.splited_data["all"].x[:, :len(labels)], axis=0)
         spend_share /= np.sum(spend_share)
         effect_share = self.clf.coef_[:len(labels)]
         effect_share /= np.sum(effect_share)
-        
-        width = 0.35  # the width of the bars
+        return {
+            "spend_share": spend_share,
+            "effect_share": effect_share,
+            "labels": labels
+        }
 
-        rects1 = ax.bar(x - width/2, spend_share, width, label="Spend share")
-        rects2 = ax.bar(x + width/2, effect_share, width, label="Effect share")
-
-        # Add some text for labels, title and custom x-axis tick labels, etc.
-        ax.set_title("Spend vs. effect")
-        ax.set_xticks(x, labels)
-        ax.set_xticklabels(labels, rotation=45, ha="right")
-        ax.legend()
-
-        for p in ax.patches:
-            width = p.get_width()
-            height = p.get_height()
-            x, y = p.get_xy() 
-            ax.annotate(f'{height:.0%}', (x + width/2, y + height*1.02), ha='center')
-    
-    def plot_regression(self, ax):
-        param_data = self.apply_params(self.hyper_params)
-        y_pred_trn = self._predict(param_data["train"])
-        y_pred_tst = self._predict(param_data["test"])
-
-        x_tst = range(0, y_pred_tst.size)
-        x_trn = range(y_pred_tst.size, y_pred_trn.size + y_pred_tst.size)
-        x_all = range(0, y_pred_trn.size + y_pred_tst.size)
-
-        y_true_trn = param_data["train"].y
-        y_true_tst = param_data["test"].y
-        
-        y_true = np.concatenate((y_true_tst, y_true_trn))
-
-        r2 = r2_score(y_true, np.concatenate((y_pred_tst, y_pred_trn)))
-
-        ax.plot(x_trn, y_pred_trn, label="y-pred (training)")
-        ax.plot(x_all, y_true, label="y true")
-        ax.plot(x_tst, y_pred_tst, label="y-pred (testing)")
-        if self.parameters["use_prophet"]:
-            try:
-                ax.plot(x_tst, self.splited_data["test"].y_season, "--")
-                ax.plot(x_trn, self.splited_data["train"].y_season, "--")
-            except ValueError:
-                # Occurs when not yearly period is found by prophet
-                pass
-            ax.plot(x_all, self.splited_data["all"].y_hat, label=r" $\hat{y}$")
-            
-
-        ax.legend()
-        ax.set_title(r"Line following. Total $r^2=$" + f"{r2:0.4}")
-
-    def plot_waterfall(self, ax):
-        wf_df = self.get_waterfall_data()
-        blank = wf_df.amount.cumsum().shift(1).fillna(0)
-        ax.barh(
-            wf_df.index,
-            wf_df.values.reshape(-1),
-            left=blank,
-            height=1.0,
-            facecolor='black',
-            edgecolor='black'
-        )
-
-    def plot_budget_optimizer(self, ax):
-        opt_obj = self.get_budget_optimization()
-        from pprint import pprint
-        dict_obj = {}
-        for item in opt_obj["allocation"]:
-            dict_obj[item["name"]] = [
-                item["effect"]["current"],
-                item["effect"]["optimized"],
-                item["spend"]["current"],
-                item["spend"]["optimized"],
-            ]
-        columns = [
-            "effect current",
-            "effect optimized",
-            "spend current",
-            "spend optimized"
-        ]
-        df = pd.DataFrame.from_dict(dict_obj, orient="index", columns=columns)
-        # Normalize to [0-1]
-        df = df / df.sum()
-        df.plot.bar(rot=0, ax=ax)
-        ax.set_title(f"Budget change {opt_obj['budgetChange']*100:.1f}% Effect change {opt_obj['effectChange']*100:.1f}%")
-
-    def plot_adstock(self, ax):
-        channel_weights = self.get_adstock_data()
-        for channel, weights in channel_weights.items():
-            if channel == "time_lag":
-                continue
-            name = channel.replace("_EUR", "").replace("google", "ggl").replace("facebook", "fb")
-            ax.plot(weights, label=name)
-        ax.legend(
-            loc="upper center",
-            prop={"size": 6},
-            bbox_to_anchor=(0.5, 1.05),
-            ncol=2,
-            fancybox=True,
-            shadow=True
-        )
-        ax.set_title("Adstock")
-
-    def plot_budget_total(self, ax):
-        data = self.splited_data["all"]
-        x_init = np.mean(data.x, axis=0)
-        budget_quants = np.linspace(0, 20)
-
-        x_data = []
-        y_data = []
-        for budget_quant in budget_quants:
-            xs = x_init * budget_quant
-            eval_obj = self._spend_effect(xs)
-            x_data.append(budget_quant)
-            y_data.append(eval_obj.roi)
-        ax.plot(x_data, y_data)
+    def get_regression_data(self):
+        param_data = self.apply_params(self.hyper_params, use_split=False)
+        y_pred = self._predict(param_data)
+        r2 = r2_score(param_data.y, y_pred)
+        return {
+            "y_pred": y_pred,
+            "y_true": param_data.y,
+            "x_date": param_data.dates,
+            "y_season": param_data.y_season,
+            "r2": r2
+        }
 
     def get_waterfall_data(self):
         param_data = self.apply_params(self.hyper_params,
@@ -745,7 +602,7 @@ class Ursus:
             end_metrics[met_key] = met_val[-1]
         return end_metrics
 
-    def get_budget_optimization(self, l_bound=0.8, h_bound=1.2, budget=None):
+    def get_budget_optimization(self, l_bound=0.8, h_bound=1.2, budget=None, get_model=False):
         """
         Optimize budget spend and returning an array of floats. These values
         are to be interpreted as weights in the range [1-max_diff; 1+max_diff]
@@ -768,6 +625,8 @@ class Ursus:
             b = budget_optimization["budget"]
             if l==l_bound and h==h_bound and b == budget:
                 model = budget_optimization["model"]
+                if get_model:
+                    return model
                 return {
                     "budgetChange": model.budget_change,
                     "effectChange": model.effect_change,
@@ -784,8 +643,6 @@ class Ursus:
             parametrization=parametrization,
             budget=2000
         )
-        # optimizer = ng.optimizers.NGOpt(parametrization=parametrization,
-        #                                 budget=2000)
         import warnings
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -807,21 +664,14 @@ class Ursus:
                 "model": init_effect
             }
         )
-        self.init_effect = init_effect
+        if get_model:
+            return init_effect
         ret_dict = {
             "budgetChange": init_effect.budget_change,
             "effectChange": init_effect.effect_change,
             "allocation": init_effect.allocation
         }
-        for k, v in ret_dict.items():
-            if "allocation" not in k:
-                print(k, v)
-
-        return {
-            "budgetChange": init_effect.budget_change,
-            "effectChange": init_effect.effect_change,
-            "allocation": init_effect.allocation
-        }
+        return ret_dict
     
     def _format_bounds(self, init_val, bound):
         if isinstance(bound, (list, tuple)):
@@ -898,6 +748,7 @@ class UrsusDataset:
         self.x = df[params["ind_var"]].values
         self.y = df[params["dep_var"]].values
         self.c = df[params["context"]].values
+        self.dates = df[params["date_var"]].values
         self.params = params
         self.df = df
         
@@ -1043,3 +894,23 @@ class EvalEffect:
                     },
                 }
             )
+    
+    def get_df(self):
+        dict_obj = {}
+        for item in self.allocation:
+            dict_obj[item["name"]] = [
+                item["effect"]["current"],
+                item["effect"]["optimized"],
+                item["spend"]["current"],
+                item["spend"]["optimized"],
+            ]
+        columns = [
+            "effect current",
+            "effect optimized",
+            "spend current",
+            "spend optimized"
+        ]
+        return pd.DataFrame.from_dict(
+            dict_obj,
+            orient="index",
+            columns=columns)

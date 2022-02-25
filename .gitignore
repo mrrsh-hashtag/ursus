@@ -154,3 +154,5 @@ cython_debug/
 
 local_files/
 fe/
+*.html
+*.csv
