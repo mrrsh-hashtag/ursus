@@ -83,7 +83,7 @@ class Ursus:
             "facebook_S_gamma" : 0.05481381725765699,
             "facebook_S_theta" : 0.06777067628975211
         }
-        param_data = self.apply_params(hyper_params)
+        # param_data = self.apply_params(hyper_params)
         
         # clf = HNRidge(fit_intercept=False, scale=True)
         # clf.fit(param_data["train"].get_indeps(), param_data["train"].y_hat)
@@ -96,13 +96,14 @@ class Ursus:
         x = np.zeros(100)
         xw = np.zeros(100)
         xg = np.zeros(100)
-        x[50:60] = 10
+        # x[50:60] = 10
+        x[50] = 1
 
         for i in range(x.size):
             # g = self._geometric(theta, x.size - i)
-            print(g[:x.size - i])
-            xg[i] = np.sum(x[i:] * g[:x.size - i])
-            xw[i] = np.sum(x[i:] * w[:x.size - i])
+            # print(w[:x.size - i])
+            xg[i] = np.sum(x[:i] * g[x.size - i:])
+            xw[i] = np.sum(x[:i] * w[x.size - i:])
         plt.plot(xg)
         plt.plot(xw)
         plt.show()
@@ -335,7 +336,7 @@ class Ursus:
             weights = self._geometric(theta, x[:, idx].size)
         x_ads = np.zeros_like(x[:, idx])
         for i in range(x_ads.size):
-            x_ads[i] = np.sum(x[i:, idx] * weights[:x_ads.size - i])
+            x_ads[i] = np.sum(x[:i + 1, idx] * weights[x_ads.size - i - 1:])
         x[:, idx] = x_ads
         return x
     
@@ -343,12 +344,12 @@ class Ursus:
         """ Tau: halftime
             Sigma: slope
         """
-        t = np.arange(0, size, resolution)
+        t = np.arange(size, 0, -resolution)
         lam = tau / np.power(0.5, 1 / sigma)
         return np.power(np.e, -np.power(t/lam, sigma))
     
     def _geometric(self, theta, size, resolution=1):
-        t = np.arange(0, size, resolution)
+        t = np.arange(size, 0, -resolution)
         return np.power(theta, t)
 
     def apply_saturation(self, idx, alpha, gamma, x, set_gamma_t, multiply_sat):
@@ -494,7 +495,7 @@ class Ursus:
                 else:
                     theta = self.hyper_params[head + "_theta"]
                     weights = self._geometric(theta, size, resolution=res)
-                done_with[head] = weights.tolist()
+                done_with[head] = weights.tolist()[::-1]
         return done_with
 
     def get_training_data(self):
