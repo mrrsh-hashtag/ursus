@@ -10,7 +10,8 @@ from utilities import custom_logger
 @click.argument("data")
 @click.option('--quick', '-q', is_flag=True, help="Very low budget.")
 @click.option('--short', '-s', is_flag=True, help="Medium budget.")
-def run(data, quick, short):
+@click.option('--ws', is_flag=True, help="Workshop mode.")
+def run(data, quick, short, ws):
     """
     Run Ursus on Demo Data
     """
@@ -23,8 +24,12 @@ def run(data, quick, short):
         params["budget"] = 500
     
     ursus = Ursus(data_path, params)
-    ursus.train()
-    Reporter(ursus)
+    if ws:
+        ursus.workshop_test()
+        return
+    else:
+        ursus.train()
+        Reporter(ursus)
 
 
 if __name__ == "__main__":
